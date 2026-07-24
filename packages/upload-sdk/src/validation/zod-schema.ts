@@ -8,7 +8,11 @@ export interface SanitizedFileName {
   extension: string | null
 }
 
-export const filenameSchema = z.string().trim().min(1, "Filename cannot be empty")
+export const filenameSchema = z
+  .string()
+  .trim()
+  .min(1, "Filename cannot be empty")
+  .max(MAX_FILENAME_LENGTH, `Filename cannot exceed ${MAX_FILENAME_LENGTH} characters`)
 
 export const contentTypeSchema = z
   .string()
