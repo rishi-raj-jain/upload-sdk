@@ -2,23 +2,28 @@ import type { Metadata } from "next";
 import { appName, docsImageRoute, gitConfig, packageName } from "./shared";
 
 const fallbackSiteUrl = "https://upload-sdk.dev";
-const repositoryUrl = `https://github.com/${gitConfig.user}/${gitConfig.repo}`;
-const npmPackageUrl = `https://www.npmjs.com/package/${packageName}`;
+export const repositoryUrl = `https://github.com/${gitConfig.user}/${gitConfig.repo}`;
+export const npmPackageUrl = `https://www.npmjs.com/package/${packageName}`;
 
 export const siteTitle =
-  "Upload SDK - Typed Direct Uploads for S3 and ImageKit";
+  "Upload SDK - TypeScript Direct Uploads for S3 and ImageKit";
 export const siteDescription =
-  "TypeScript SDK for signed direct uploads to AWS S3 and ImageKit with typed asset rules, strict validation, and server-side credentials.";
+  "TypeScript SDK for secure direct browser uploads to AWS S3 and ImageKit, with typed asset rules, validation, signed POST targets, and S3 multipart uploads.";
 
 export const siteKeywords = [
   "upload sdk",
   packageName,
   "TypeScript upload SDK",
+  "file upload SDK",
   "signed uploads",
   "direct browser uploads",
+  "browser file uploads",
   "provider-agnostic uploads",
   "S3 presigned uploads",
   "S3 POST policy",
+  "S3 multipart uploads",
+  "large file uploads",
+  "chunked uploads",
   "ImageKit uploads",
   "ImageKit upload JWT",
   "file upload validation",
@@ -54,7 +59,28 @@ export function toAbsoluteUrl(path: string) {
   return new URL(path, siteUrl).toString();
 }
 
+export function createPageTitle(title: string) {
+  return `${title} | ${appName}`;
+}
+
+export function createPageDescription(title: string, description?: string) {
+  return (
+    description ??
+    `${title} documentation for ${packageName}, a TypeScript SDK for direct uploads to AWS S3 and ImageKit.`
+  );
+}
+
+export function createPageKeywords(title: string) {
+  return [
+    title,
+    `${title} Upload SDK`,
+    `${packageName} ${title}`,
+    ...siteKeywords,
+  ];
+}
+
 export const metadata: Metadata = {
+  metadataBase: siteUrl,
   title: {
     default: siteTitle,
     template: `%s | ${appName}`,
@@ -71,12 +97,22 @@ export const metadata: Metadata = {
   publisher: "marinedotsh",
   applicationName: appName,
   category: "Developer tools",
+  referrer: "origin-when-cross-origin",
   icons: {
     icon: "/upload-sdk.svg",
+    shortcut: "/upload-sdk.svg",
+    apple: "/upload-sdk.svg",
   },
-  metadataBase: siteUrl,
   alternates: {
     canonical: siteBaseUrl,
+    types: {
+      "text/markdown": toAbsoluteUrl("/llms.txt"),
+    },
+  },
+  formatDetection: {
+    email: false,
+    address: false,
+    telephone: false,
   },
   openGraph: {
     title: siteTitle,
@@ -98,6 +134,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: siteTitle,
     description: siteDescription,
+    creator: "@shivamrun",
     images: [ogImageUrl.toString()],
   },
   robots: {
@@ -114,7 +151,15 @@ export const metadata: Metadata = {
   other: {
     "npm:package": packageName,
     "github:repository": `${gitConfig.user}/${gitConfig.repo}`,
+    "docs:llms": toAbsoluteUrl("/llms.txt"),
   },
+};
+
+const organization = {
+  "@type": "Organization",
+  "@id": `${siteBaseUrl}/#organization`,
+  name: "marinedotsh",
+  url: `https://github.com/${gitConfig.user}`,
 };
 
 export const structuredData = {
@@ -128,12 +173,14 @@ export const structuredData = {
       url: siteBaseUrl,
       description: siteDescription,
       inLanguage: "en-US",
-      publisher: {
-        "@type": "Organization",
-        name: "marinedotsh",
-        url: `https://github.com/${gitConfig.user}`,
+      publisher: organization,
+      potentialAction: {
+        "@type": "SearchAction",
+        target: `${siteBaseUrl}/docs?query={search_term_string}`,
+        "query-input": "required name=search_term_string",
       },
     },
+    organization,
     {
       "@type": "SoftwareSourceCode",
       "@id": `${siteBaseUrl}/#source-code`,
@@ -155,9 +202,7 @@ export const structuredData = {
         url: "https://github.com/shivamrun",
       },
       publisher: {
-        "@type": "Organization",
-        name: "marinedotsh",
-        url: `https://github.com/${gitConfig.user}`,
+        "@id": `${siteBaseUrl}/#organization`,
       },
       offers: {
         "@type": "Offer",
@@ -177,7 +222,78 @@ export const structuredData = {
         "ImageKit upload JWTs",
         "File upload validation",
         "Typed asset upload configuration",
+        "Large S3 multipart uploads",
       ],
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": `${siteBaseUrl}/#software-application`,
+      name: packageName,
+      alternateName: appName,
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "Node.js",
+      softwareVersion: "0.1.1",
+      url: siteBaseUrl,
+      downloadUrl: npmPackageUrl,
+      codeRepository: repositoryUrl,
+      description: siteDescription,
+      offers: {
+        "@type": "Offer",
+        price: "0",
+        priceCurrency: "USD",
+      },
     },
   ],
 };
+
+export function createDocsPageStructuredData(input: {
+  title: string;
+  description?: string;
+  url: string;
+  imageUrl: string;
+}) {
+  const title = createPageTitle(input.title);
+  const description = createPageDescription(input.title, input.description);
+
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "TechArticle",
+        "@id": `${input.url}#article`,
+        headline: title,
+        description,
+        url: input.url,
+        image: input.imageUrl,
+        inLanguage: "en-US",
+        isPartOf: {
+          "@id": `${siteBaseUrl}/#website`,
+        },
+        about: {
+          "@id": `${siteBaseUrl}/#software-application`,
+        },
+        publisher: {
+          "@id": `${siteBaseUrl}/#organization`,
+        },
+      },
+      {
+        "@type": "BreadcrumbList",
+        "@id": `${input.url}#breadcrumb`,
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Documentation",
+            item: toAbsoluteUrl("/docs"),
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: input.title,
+            item: input.url,
+          },
+        ],
+      },
+    ],
+  };
+}

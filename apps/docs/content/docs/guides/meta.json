@@ -4,6 +4,7 @@
     "browser-uploads",
     "next-js-direct-uploads",
     "s3-presigned-browser-uploads",
+    "s3-large-file-uploads",
     "imagekit-browser-uploads",
     "validation-and-errors"
   ]

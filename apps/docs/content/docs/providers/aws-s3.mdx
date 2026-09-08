@@ -69,7 +69,10 @@ A limited IAM policy can look like this:
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": "s3:PutObject",
+      "Action": [
+        "s3:PutObject",
+        "s3:AbortMultipartUpload"
+      ],
       "Resource": "arn:aws:s3:::example-bucket/uploads/*"
     }
   ]
@@ -109,10 +112,15 @@ A basic CORS configuration looks like this:
       "https://example.com"
     ],
     "AllowedMethods": [
-      "POST"
+      "POST",
+      "PUT",
+      "DELETE"
     ],
     "AllowedHeaders": [
       "*"
+    ],
+    "ExposeHeaders": [
+      "ETag"
     ],
     "MaxAgeSeconds": 3600
   }
@@ -131,10 +139,15 @@ For local development, you may also need to allow your local origin:
       "https://example.com"
     ],
     "AllowedMethods": [
-      "POST"
+      "POST",
+      "PUT",
+      "DELETE"
     ],
     "AllowedHeaders": [
       "*"
+    ],
+    "ExposeHeaders": [
+      "ETag"
     ],
     "MaxAgeSeconds": 3600
   }
@@ -142,6 +155,8 @@ For local development, you may also need to allow your local origin:
 ```
 
 Avoid using `"*"` for `AllowedOrigins` in production unless public cross-origin access is intentional.
+
+`PUT` and exposed `ETag` headers are required when using S3 large-file multipart uploads.
 
 ## How S3 uploads are signed
 
@@ -222,6 +237,22 @@ Do not manually set the multipart `Content-Type` header. The browser adds the re
 See [Browser Uploads](/docs/guides/browser-uploads) for the complete client flow.
 
 For a search-intent guide focused on S3, see [S3 Presigned Browser Uploads](/docs/guides/s3-presigned-browser-uploads).
+
+## Large file uploads
+
+AWS S3 storage profiles also support chunked multipart upload sessions.
+
+Use [S3 Large File Uploads](/docs/guides/s3-large-file-uploads) when files should be split into parts and uploaded with signed `PUT` URLs.
+
+The SDK flow is:
+
+* `createMultipartUpload()` starts the S3 session.
+* `prepareMultipartUploadParts()` signs each part URL.
+* `uploadMultipartParts()` uploads chunks from the browser.
+* `completeMultipartUpload()` asks S3 to assemble the object.
+* `abortMultipartUpload()` cleans up failed sessions.
+
+S3 requires every part except the final part to be at least 5 MiB, no part to exceed 5 GiB, and no upload to exceed 10,000 parts.
 
 ## Temporary credentials
 

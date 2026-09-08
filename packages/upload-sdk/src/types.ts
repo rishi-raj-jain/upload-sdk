@@ -32,6 +32,67 @@ export type ProviderPrepareUploadInput = {
   }
 }
 
+export type ProviderCreateMultipartUploadInput = ProviderPrepareUploadInput
+
+export type ProviderCreateMultipartUploadOutput = {
+  strategy: "multipart-parts"
+  key: string
+  uploadId: string
+}
+
+export type CreateMultipartUploadOutput = ProviderCreateMultipartUploadOutput & {
+  storageProfile: string
+}
+
+export type ProviderPrepareMultipartUploadPartsInput = {
+  key: string
+  uploadId: string
+  partNumbers: readonly number[]
+  expiresInSeconds?: number
+}
+
+export type MultipartUploadPart = {
+  partNumber: number
+  url: string
+  method: "PUT"
+  headers: Record<string, string>
+  expiresAt: string
+}
+
+export type ProviderPrepareMultipartUploadPartsOutput = {
+  strategy: "multipart-parts"
+  key: string
+  uploadId: string
+  parts: MultipartUploadPart[]
+}
+
+export type PrepareMultipartUploadPartsOutput = ProviderPrepareMultipartUploadPartsOutput & {
+  storageProfile: string
+}
+
+export type CompletedMultipartUploadPart = {
+  partNumber: number
+  etag: string
+}
+
+export type ProviderCompleteMultipartUploadInput = {
+  key: string
+  uploadId: string
+  parts: readonly CompletedMultipartUploadPart[]
+}
+
+export type CompleteMultipartUploadOutput = {
+  key: string
+  location?: string
+  bucket?: string
+  etag?: string
+}
+
+export type ProviderAbortMultipartUploadInput = {
+  key: string
+  uploadId: string
+}
+
 export type PrepareUploadOutput = {
   strategy: "multipart"
   url: string
@@ -44,6 +105,16 @@ export type PrepareUploadOutput = {
 
 export type StorageProvider = {
   prepareUpload(input: ProviderPrepareUploadInput): Promise<PrepareUploadOutput>
+  createMultipartUpload?(
+    input: ProviderCreateMultipartUploadInput,
+  ): Promise<ProviderCreateMultipartUploadOutput>
+  prepareMultipartUploadParts?(
+    input: ProviderPrepareMultipartUploadPartsInput,
+  ): Promise<ProviderPrepareMultipartUploadPartsOutput>
+  completeMultipartUpload?(
+    input: ProviderCompleteMultipartUploadInput,
+  ): Promise<CompleteMultipartUploadOutput>
+  abortMultipartUpload?(input: ProviderAbortMultipartUploadInput): Promise<void>
 }
 
 export type AssetUploadConfig<TStorageProfileName extends string = string> = {

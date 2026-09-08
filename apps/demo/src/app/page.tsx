@@ -1,17 +1,10 @@
 "use client"
 
+import { type PrepareUploadOutput, uploadFile } from "@marinedotsh/upload-sdk"
 import { type FormEvent, useRef, useState } from "react"
 import { assets } from "@/server/asset-rules"
 
 const uploadAsset = assets.avatar
-
-type PreparedUpload = {
-  url: string
-  headers: Record<string, string>
-  strategy: "multipart"
-  method: "POST"
-  fields: Record<string, string>
-}
 
 type UploadErrorResponse = {
   error?: {
@@ -57,7 +50,7 @@ export default function UploadPage() {
 
       const presignedUpload = await getPresignedUrl(file)
 
-      await uploadToProvider(presignedUpload, file)
+      await uploadFile(presignedUpload, file)
 
       setStatus({
         type: "success",
@@ -160,7 +153,7 @@ export default function UploadPage() {
   )
 }
 
-async function getPresignedUrl(file: File): Promise<PreparedUpload> {
+async function getPresignedUrl(file: File): Promise<PrepareUploadOutput> {
   const contentType = file.type || "application/octet-stream"
 
   const presignedUrlResponse = await fetch("/api/upload", {
@@ -176,7 +169,7 @@ async function getPresignedUrl(file: File): Promise<PreparedUpload> {
   })
 
   const presignedUpload = (await presignedUrlResponse.json()) as
-    | PreparedUpload
+    | PrepareUploadOutput
     | UploadErrorResponse
 
   if (!presignedUrlResponse.ok || !("url" in presignedUpload)) {
@@ -188,26 +181,6 @@ async function getPresignedUrl(file: File): Promise<PreparedUpload> {
   }
 
   return presignedUpload
-}
-
-async function uploadToProvider(presignedUpload: PreparedUpload, file: File) {
-  const formData = new FormData()
-
-  for (const [name, value] of Object.entries(presignedUpload.fields)) {
-    formData.append(name, value)
-  }
-
-  formData.append("file", file)
-
-  const uploadResponse = await fetch(presignedUpload.url, {
-    method: presignedUpload.method,
-    headers: presignedUpload.headers,
-    body: formData,
-  })
-
-  if (!uploadResponse.ok) {
-    throw new Error((await uploadResponse.text()) || "File upload failed.")
-  }
 }
 
 function formatBytes(bytes: number) {

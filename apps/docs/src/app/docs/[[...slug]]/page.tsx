@@ -9,17 +9,33 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getMDXComponents } from "@/components/mdx";
 import { ViewOptionsPopover } from "@/components/view-options-popover";
-import { toAbsoluteUrl } from "@/lib/metadata";
+import {
+  createDocsPageStructuredData,
+  createPageDescription,
+  createPageKeywords,
+  createPageTitle,
+  siteBaseUrl,
+  toAbsoluteUrl,
+} from "@/lib/metadata";
 import { getPageImage, getPageMarkdownUrl, source } from "@/lib/source";
 
 export default async function Page(props: PageProps<"/docs/[[...slug]]">) {
   const params = await props.params;
   const page = source.getPage(params.slug);
-  if (!page) notFound();
+  if (!page) {
+    return notFound();
+  }
 
   const MDX = page.data.body;
   const markdownUrl = getPageMarkdownUrl(page).url;
   const pageUrl = toAbsoluteUrl(page.url);
+  const imageUrl = toAbsoluteUrl(getPageImage(page).url);
+  const structuredData = createDocsPageStructuredData({
+    title: page.data.title,
+    description: page.data.description,
+    url: pageUrl,
+    imageUrl,
+  });
 
   return (
     <DocsPage
@@ -39,6 +55,11 @@ export default async function Page(props: PageProps<"/docs/[[...slug]]">) {
         />
       </div>
       <DocsBody>
+        <script
+          type="application/ld+json"
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: JSON-LD is static metadata derived from MDX frontmatter.
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        />
         <MDX components={getMDXComponents()} />
       </DocsBody>
     </DocsPage>
@@ -54,23 +75,41 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   const params = await props.params;
   const page = source.getPage(params.slug);
-  if (!page) notFound();
+  if (!page) {
+    return notFound();
+  }
   const image = getPageImage(page);
+  const title = createPageTitle(page.data.title);
+  const description = createPageDescription(
+    page.data.title,
+    page.data.description,
+  );
+  const pageUrl = toAbsoluteUrl(page.url);
+  const imageUrl = toAbsoluteUrl(image.url);
 
   return {
-    title: page.data.title,
-    description: page.data.description,
+    title,
+    description,
+    keywords: createPageKeywords(page.data.title),
     alternates: {
-      canonical: toAbsoluteUrl(page.url),
+      canonical: pageUrl,
+      types: {
+        "text/markdown": toAbsoluteUrl(getPageMarkdownUrl(page).url),
+      },
     },
     openGraph: {
-      title: page.data.title,
-      description: page.data.description,
-      url: toAbsoluteUrl(page.url),
+      title,
+      description,
+      url: pageUrl,
+      siteName: "Upload SDK",
       type: "article",
+      locale: "en_US",
+      authors: ["Shivam Gupta"],
+      publishedTime: "2026-07-21T00:00:00.000Z",
+      modifiedTime: new Date().toISOString(),
       images: [
         {
-          url: toAbsoluteUrl(image.url),
+          url: imageUrl,
           width: 1200,
           height: 630,
           alt: `${page.data.title} - Upload SDK documentation`,
@@ -79,9 +118,15 @@ export async function generateMetadata(
     },
     twitter: {
       card: "summary_large_image",
-      title: page.data.title,
-      description: page.data.description,
-      images: [toAbsoluteUrl(image.url)],
+      title,
+      description,
+      creator: "@shivamrun",
+      images: [imageUrl],
+    },
+    other: {
+      "docsearch:language": "en",
+      "docsearch:version": "latest",
+      "og:see_also": siteBaseUrl,
     },
   };
 }

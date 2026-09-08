@@ -1,0 +1,253 @@
+---
+title: S3 Large File Uploads
+description: Upload large files to AWS S3 with multipart upload sessions, signed part URLs, browser chunking, and completion.
+---
+
+AWS S3 multipart uploads split one large object into smaller parts.
+
+Use this flow for large files such as videos, archives, exports, and media files that should not be sent through your application server.
+
+Provider credentials must stay on the server. The browser should only receive signed part URLs.
+
+## Flow
+
+1. The browser sends file metadata to your server.
+2. The server calls `createMultipartUpload()`.
+3. The browser asks the server for signed part URLs.
+4. The browser calls `uploadMultipartParts()` with the original `File`.
+5. The browser sends uploaded part ETags back to the server.
+6. The server calls `completeMultipartUpload()`.
+7. If anything fails, the server calls `abortMultipartUpload()`.
+
+## Server uploader
+
+Create your uploader in server-only code:
+
+```ts
+import { createUploader, defineAssets, defineStorageProfiles } from "@marinedotsh/upload-sdk";
+import { awsS3 } from "@marinedotsh/upload-sdk/providers";
+
+const storageProfiles = defineStorageProfiles({
+  uploads: awsS3({
+    bucket: process.env.AWS_BUCKET!,
+    region: process.env.AWS_REGION!,
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+    },
+  }),
+});
+
+const assets = defineAssets(storageProfiles, {
+  video: {
+    storageProfile: "uploads",
+    keyPrefix: "videos",
+    accept: {
+      mimeTypes: ["video/*"],
+    },
+    limits: {
+      maxFileSize: {
+        value: 10,
+        unit: "GB",
+      },
+    },
+    expiresIn: {
+      value: 15,
+      unit: "minutes",
+    },
+  },
+});
+
+export const uploader = createUploader({
+  storageProfiles,
+  defaultStorageProfile: "uploads",
+  assets,
+});
+```
+
+## Start route
+
+Start the multipart upload from a server route:
+
+```ts
+import { NextResponse } from "next/server";
+import { uploader } from "@/server/upload";
+
+export async function POST(request: Request) {
+  // Authenticate and authorize the user here.
+
+  const input = await request.json();
+
+  const multipartUpload = await uploader.createMultipartUpload("video", {
+    filename: input.filename,
+    contentType: input.contentType,
+    size: input.size,
+  });
+
+  return NextResponse.json(multipartUpload);
+}
+```
+
+The returned object includes the generated key, S3 upload ID, and selected storage profile.
+
+## Sign parts route
+
+Sign each part number on the server:
+
+```ts
+import { NextResponse } from "next/server";
+import { uploader } from "@/server/upload";
+
+export async function POST(request: Request) {
+  // Authenticate and authorize the user here.
+
+  const input = await request.json();
+
+  const preparedParts = await uploader.prepareMultipartUploadParts({
+    storageProfile: input.storageProfile,
+    key: input.key,
+    uploadId: input.uploadId,
+    partNumbers: input.partNumbers,
+  });
+
+  return NextResponse.json(preparedParts);
+}
+```
+
+Only sign part numbers that belong to an upload session your application trusts.
+
+## Browser upload
+
+Upload the signed parts from the browser:
+
+```ts
+import { uploadMultipartParts } from "@marinedotsh/upload-sdk";
+
+const chunkSize = 8 * 1024 * 1024;
+const partCount = Math.ceil(file.size / chunkSize);
+
+const multipartUpload = await fetch("/api/uploads/video/start", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    filename: file.name,
+    contentType: file.type,
+    size: file.size,
+  }),
+}).then((response) => response.json());
+
+const preparedParts = await fetch("/api/uploads/video/parts", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    ...multipartUpload,
+    partNumbers: Array.from({ length: partCount }, (_, index) => index + 1),
+  }),
+}).then((response) => response.json());
+
+const uploadedParts = await uploadMultipartParts(preparedParts, file, {
+  chunkSize,
+  concurrency: 3,
+  onProgress: ({ percent }) => {
+    console.log(percent);
+  },
+});
+```
+
+`uploadMultipartParts()` slices the `File`, uploads part URLs with `PUT`, and returns the ETags S3 needs for completion.
+
+## Complete route
+
+Complete the multipart upload on the server:
+
+```ts
+import { NextResponse } from "next/server";
+import { uploader } from "@/server/upload";
+
+export async function POST(request: Request) {
+  // Authenticate and authorize the user here.
+
+  const input = await request.json();
+
+  const completedUpload = await uploader.completeMultipartUpload({
+    storageProfile: input.storageProfile,
+    key: input.key,
+    uploadId: input.uploadId,
+    parts: input.parts,
+  });
+
+  return NextResponse.json(completedUpload);
+}
+```
+
+The `parts` array must contain each uploaded part number and the matching `ETag`.
+
+## Abort route
+
+Abort failed or abandoned multipart uploads:
+
+```ts
+import { NextResponse } from "next/server";
+import { uploader } from "@/server/upload";
+
+export async function POST(request: Request) {
+  // Authenticate and authorize the user here.
+
+  const input = await request.json();
+
+  await uploader.abortMultipartUpload({
+    storageProfile: input.storageProfile,
+    key: input.key,
+    uploadId: input.uploadId,
+  });
+
+  return NextResponse.json({ ok: true });
+}
+```
+
+Applications should also clean up old incomplete multipart uploads with S3 lifecycle rules.
+
+## S3 limits
+
+S3 multipart uploads have provider limits:
+
+* Part numbers must be from 1 through 10,000.
+* Each part except the final part must be at least 5 MiB.
+* Each part must be no larger than 5 GiB.
+* The browser must be able to read the `ETag` response header.
+
+For browser uploads, configure bucket CORS to allow `PUT` and expose `ETag`:
+
+```json
+[
+  {
+    "AllowedOrigins": [
+      "https://example.com"
+    ],
+    "AllowedMethods": [
+      "POST",
+      "PUT",
+      "DELETE"
+    ],
+    "AllowedHeaders": [
+      "*"
+    ],
+    "ExposeHeaders": [
+      "ETag"
+    ],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Use your application origin instead of `https://example.com`.
+
+## Provider support
+
+This S3-style multipart flow is currently implemented for `awsS3`.
+
+ImageKit direct uploads still use the regular prepared multipart `POST` flow.

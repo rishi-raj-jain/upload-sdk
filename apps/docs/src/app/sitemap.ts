@@ -10,6 +10,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     .getPages()
     .map((page) => ({
       url: toAbsoluteUrl(page.url),
+      lastModified: new Date(),
       changeFrequency: "weekly" as const,
       priority: page.url === "/docs" ? 0.9 : 0.7,
     }))
@@ -18,6 +19,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     {
       url: siteBaseUrl,
+      lastModified: new Date(),
       changeFrequency: "weekly",
       priority: 1,
     },

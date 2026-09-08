@@ -74,7 +74,23 @@ uploader.prepareUpload("avatar", input);
 
 The response contains the signed instructions needed for the direct upload.
 
-## Build the multipart form
+## Send the file
+
+Use `uploadFile()` to submit the file to the returned provider URL:
+
+```ts
+import { uploadFile } from "@marinedotsh/upload-sdk";
+
+await uploadFile(preparedUpload, file, {
+  onProgress: ({ percent }) => {
+    console.log(percent);
+  },
+});
+```
+
+The helper appends every signed provider field before appending the file.
+
+## Manual multipart form
 
 Create `FormData` and add every field returned by the provider:
 
@@ -100,7 +116,7 @@ Do not rename, remove, or change the returned fields. They may be covered by the
 Do not manually set the multipart `Content-Type` header. The browser adds the required boundary automatically.
 </Warning>
 
-## Send the file
+### Submit manually
 
 Submit the form to the returned provider URL:
 
@@ -123,7 +139,7 @@ The same browser flow works for both providers. The returned URL and signed fiel
 ## Complete example
 
 ```ts
-import type { PrepareUploadOutput } from "@marinedotsh/upload-sdk";
+import { type PrepareUploadOutput, uploadFile } from "@marinedotsh/upload-sdk";
 
 async function requestPreparedUpload(
   file: File,
@@ -147,38 +163,13 @@ async function requestPreparedUpload(
   return response.json();
 }
 
-async function sendFileToProvider(
-  file: File,
-  preparedUpload: PrepareUploadOutput,
-): Promise<void> {
-  const formData = new FormData();
-
-  for (const [name, value] of Object.entries(
-    preparedUpload.fields,
-  )) {
-    formData.append(name, value);
-  }
-
-  formData.append("file", file);
-
-  const response = await fetch(preparedUpload.url, {
-    method: preparedUpload.method,
-    headers: preparedUpload.headers,
-    body: formData,
-  });
-
-  if (!response.ok) {
-    throw new Error("The provider rejected the upload.");
-  }
-}
-
 export async function uploadAvatar(
   file: File,
 ): Promise<string> {
   const preparedUpload =
     await requestPreparedUpload(file);
 
-  await sendFileToProvider(file, preparedUpload);
+  await uploadFile(preparedUpload, file);
 
   return preparedUpload.key;
 }
@@ -234,8 +225,8 @@ Upload SDK prepares the upload target. It does not confirm completion or inspect
 ## Rules to remember
 
 * Send only file information to the preparation endpoint.
-* Add every returned field to `FormData`.
-* Append the file after the provider fields.
+* Use `uploadFile()` or add every returned field to `FormData`.
+* Append the file after provider fields when building the form manually.
 * Use the returned URL, method, and headers.
 * Do not manually set multipart `Content-Type`.
 * Do not change signed fields.
@@ -248,6 +239,9 @@ Upload SDK prepares the upload target. It does not confirm completion or inspect
 
 * [S3 Presigned Browser Uploads:](/docs/guides/s3-presigned-browser-uploads)
   Understand the S3 presigned POST version of this flow.
+
+* [S3 Large File Uploads:](/docs/guides/s3-large-file-uploads)
+  Upload large files with S3 multipart upload sessions.
 
 * [ImageKit Browser Uploads:](/docs/guides/imagekit-browser-uploads)
   Understand the ImageKit signed token version of this flow.

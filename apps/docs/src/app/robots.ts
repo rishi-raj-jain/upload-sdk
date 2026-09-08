@@ -6,10 +6,13 @@ export const revalidate = false;
 
 export default function robots(): MetadataRoute.Robots {
   return {
-    rules: {
-      userAgent: "*",
-      allow: "/",
-    },
+    rules: [
+      {
+        userAgent: "*",
+        allow: "/",
+        disallow: ["/api/"],
+      },
+    ],
     host: siteBaseUrl,
     sitemap: toAbsoluteUrl("/sitemap.xml"),
   };

@@ -22,9 +22,9 @@ Support for Cloudflare R2 is planned for a future release.
 
 Other storage providers are not currently supported.
 
-## Multipart uploads only
+## Upload strategies
 
-The SDK currently prepares multipart form uploads:
+The SDK prepares multipart form uploads for AWS S3 and ImageKit:
 
 ```ts
 {
@@ -33,14 +33,23 @@ The SDK currently prepares multipart form uploads:
 }
 ```
 
+AWS S3 also supports provider multipart-upload sessions for large files:
+
+```ts
+{
+  strategy: "multipart-parts",
+}
+```
+
 It does not currently support:
 
 * Presigned `PUT` uploads
-* Chunked uploads
 * Resumable uploads
-* Provider multipart-upload sessions
+* Multipart sessions for ImageKit
 
-The client must submit the returned fields and file using `FormData`.
+For regular prepared uploads, the client submits the returned fields and file using `FormData`.
+
+For S3 large-file uploads, the client uploads signed part URLs and your server completes the multipart upload.
 
 ## Client-reported file information
 
@@ -88,6 +97,8 @@ It does not mean:
 * The upload was saved in your database
 
 Your application must handle completion checks when they are required.
+
+For S3 multipart uploads, `completeMultipartUpload()` asks S3 to assemble uploaded parts, but your application still owns database persistence and any post-upload verification.
 
 ## Authentication and authorization
 

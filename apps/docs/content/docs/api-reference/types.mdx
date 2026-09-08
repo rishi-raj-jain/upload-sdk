@@ -15,10 +15,26 @@ import type {
   FileSizeLimit,
   FileSizeUnit,
   MetadataValue,
+  CompleteMultipartUploadOutput,
+  CompletedMultipartUploadPart,
+  CreateMultipartUploadOutput,
+  MultipartUploadPart,
+  PrepareMultipartUploadPartsOutput,
   PrepareUploadOutput,
+  ProviderAbortMultipartUploadInput,
+  ProviderCompleteMultipartUploadInput,
+  ProviderCreateMultipartUploadOutput,
+  ProviderCreateMultipartUploadInput,
+  ProviderPrepareMultipartUploadPartsOutput,
+  ProviderPrepareMultipartUploadPartsInput,
   ProviderPrepareUploadInput,
   StorageProvider,
+  UploadFileOptions,
+  UploadFileProgress,
+  UploadFileResult,
   UploadMetadata,
+  UploadMultipartPartsOptions,
+  UploadMultipartPartsResult,
   UploadSDKErrorCode,
 } from "@marinedotsh/upload-sdk";
 import type {
@@ -111,7 +127,7 @@ type PrepareUploadOutput = {
 | `key`       | Generated storage key            |
 | `expiresAt` | Expiration as an ISO 8601 string |
 
-The only supported strategy is currently `"multipart"` with method `"POST"`.
+The regular direct-upload strategy is `"multipart"` with method `"POST"`.
 
 ```ts
 const preparedUpload: PrepareUploadOutput =
@@ -119,6 +135,134 @@ const preparedUpload: PrepareUploadOutput =
 ```
 
 See [Prepared Uploads](/docs/core-concepts/prepared-uploads).
+
+## S3 multipart upload types
+
+AWS S3 storage profiles support chunked multipart upload sessions.
+
+### `CreateMultipartUploadOutput`
+
+Returned by `uploader.createMultipartUpload()`.
+
+```ts
+type CreateMultipartUploadOutput = {
+  strategy: "multipart-parts";
+  key: string;
+  uploadId: string;
+  storageProfile: string;
+};
+```
+
+### `PrepareMultipartUploadPartsOutput`
+
+Returned by `uploader.prepareMultipartUploadParts()`.
+
+```ts
+type PrepareMultipartUploadPartsOutput = {
+  strategy: "multipart-parts";
+  key: string;
+  uploadId: string;
+  storageProfile: string;
+  parts: MultipartUploadPart[];
+};
+```
+
+### `MultipartUploadPart`
+
+One signed part URL for the browser to upload with `PUT`.
+
+```ts
+type MultipartUploadPart = {
+  partNumber: number;
+  url: string;
+  method: "PUT";
+  headers: Record<string, string>;
+  expiresAt: string;
+};
+```
+
+### `CompletedMultipartUploadPart`
+
+The browser returns these values after `uploadMultipartParts()` succeeds.
+
+```ts
+type CompletedMultipartUploadPart = {
+  partNumber: number;
+  etag: string;
+};
+```
+
+### `CompleteMultipartUploadOutput`
+
+Returned by `uploader.completeMultipartUpload()`.
+
+```ts
+type CompleteMultipartUploadOutput = {
+  key: string;
+  location?: string;
+  bucket?: string;
+  etag?: string;
+};
+```
+
+See [S3 Large File Uploads](/docs/guides/s3-large-file-uploads).
+
+### `UploadMultipartPartsResult`
+
+Returned by `uploadMultipartParts()` after every browser part upload succeeds.
+
+```ts
+type UploadMultipartPartsResult = {
+  key: string;
+  uploadId: string;
+  storageProfile: string;
+  parts: CompletedMultipartUploadPart[];
+};
+```
+
+## Browser helper types
+
+### `UploadFileProgress`
+
+```ts
+type UploadFileProgress = {
+  loaded: number;
+  total?: number;
+  percent?: number;
+};
+```
+
+### `UploadFileOptions`
+
+```ts
+type UploadFileOptions = {
+  fieldName?: string;
+  filename?: string;
+  signal?: AbortSignal;
+  onProgress?: (progress: UploadFileProgress) => void;
+};
+```
+
+### `UploadFileResult`
+
+```ts
+type UploadFileResult = {
+  key: string;
+  status: number;
+  responseText: string;
+};
+```
+
+### `UploadMultipartPartsOptions`
+
+```ts
+type UploadMultipartPartsOptions = {
+  chunkSize?: number;
+  concurrency?: number;
+  signal?: AbortSignal;
+  onProgress?: (progress: UploadFileProgress) => void;
+};
+```
 
 ## Prepare-upload input
 
@@ -370,6 +514,22 @@ type StorageProvider = {
   prepareUpload(
     input: ProviderPrepareUploadInput,
   ): Promise<PrepareUploadOutput>;
+
+  createMultipartUpload?(
+    input: ProviderCreateMultipartUploadInput,
+  ): Promise<ProviderCreateMultipartUploadOutput>;
+
+  prepareMultipartUploadParts?(
+    input: ProviderPrepareMultipartUploadPartsInput,
+  ): Promise<ProviderPrepareMultipartUploadPartsOutput>;
+
+  completeMultipartUpload?(
+    input: ProviderCompleteMultipartUploadInput,
+  ): Promise<CompleteMultipartUploadOutput>;
+
+  abortMultipartUpload?(
+    input: ProviderAbortMultipartUploadInput,
+  ): Promise<void>;
 };
 ```
 

@@ -1,6 +1,17 @@
 import { UploadSDKError } from "../error"
-import type { PrepareUploadOutput, ProviderPrepareUploadInput, StorageProvider } from "./../types"
-import { encodeBase64, hmacSha256, toHex } from "./../validation/crypto-utils"
+import type {
+  CompleteMultipartUploadOutput,
+  PrepareUploadOutput,
+  ProviderAbortMultipartUploadInput,
+  ProviderCompleteMultipartUploadInput,
+  ProviderCreateMultipartUploadInput,
+  ProviderCreateMultipartUploadOutput,
+  ProviderPrepareMultipartUploadPartsInput,
+  ProviderPrepareMultipartUploadPartsOutput,
+  ProviderPrepareUploadInput,
+  StorageProvider,
+} from "./../types"
+import { encodeBase64, hmacSha256, sha256, toHex } from "./../validation/crypto-utils"
 
 export type AwsS3Config = {
   bucket: string
@@ -16,6 +27,8 @@ export type AwsS3Config = {
 type PostPolicyCondition = Record<string, string> | ["content-length-range", number, number]
 
 export function awsS3(config: AwsS3Config): StorageProvider {
+  const endpoint = `https://${config.bucket}.s3.${config.region}.amazonaws.com`
+
   async function prepareUpload(input: ProviderPrepareUploadInput): Promise<PrepareUploadOutput> {
     const expiresInSeconds = input.expiresInSeconds ?? 300
 
@@ -100,7 +113,7 @@ export function awsS3(config: AwsS3Config): StorageProvider {
 
     return {
       strategy: "multipart",
-      url: `https://${config.bucket}.s3.${config.region}.amazonaws.com`,
+      url: endpoint,
       method: "POST",
       headers: {},
       fields,
@@ -109,8 +122,168 @@ export function awsS3(config: AwsS3Config): StorageProvider {
     }
   }
 
+  async function createMultipartUpload(
+    input: ProviderCreateMultipartUploadInput,
+  ): Promise<ProviderCreateMultipartUploadOutput> {
+    const key = normalizeKey(input.key)
+    const metadataHeaders = createMetadataHeaders(input.metadata)
+    const headers = {
+      "content-type": input.contentType,
+      ...metadataHeaders,
+    }
+    const response = await signedFetch({
+      config,
+      method: "POST",
+      endpoint,
+      key,
+      query: [["uploads", ""]],
+      headers,
+      body: "",
+    })
+
+    const responseText = await response.text()
+
+    if (!response.ok) {
+      throw new UploadSDKError(responseText || "S3 could not create the multipart upload.", {
+        code: "UPLOAD_PROVIDER_ERROR",
+        statusCode: response.status,
+      })
+    }
+
+    const uploadId = readXmlValue(responseText, "UploadId")
+
+    if (!uploadId) {
+      throw new UploadSDKError("S3 did not return a multipart upload ID.", {
+        code: "UPLOAD_PROVIDER_ERROR",
+      })
+    }
+
+    return {
+      strategy: "multipart-parts",
+      key,
+      uploadId,
+    }
+  }
+
+  async function prepareMultipartUploadParts(
+    input: ProviderPrepareMultipartUploadPartsInput,
+  ): Promise<ProviderPrepareMultipartUploadPartsOutput> {
+    const key = normalizeKey(input.key)
+    const expiresInSeconds = input.expiresInSeconds ?? 300
+
+    if (!Number.isInteger(expiresInSeconds) || expiresInSeconds < 1 || expiresInSeconds > 604_800) {
+      throw new UploadSDKError("expiresInSeconds must be between 1 and 604800 seconds", {
+        code: "INVALID_UPLOAD_CONFIG",
+      })
+    }
+
+    validatePartNumbers(input.partNumbers)
+
+    const now = new Date()
+    const expiresAt = new Date(now.getTime() + expiresInSeconds * 1000).toISOString()
+    const parts = await Promise.all(
+      input.partNumbers.map(async (partNumber) => ({
+        partNumber,
+        url: await createPresignedPartUrl({
+          config,
+          endpoint,
+          expiresInSeconds,
+          key,
+          now,
+          partNumber,
+          uploadId: input.uploadId,
+        }),
+        method: "PUT" as const,
+        headers: {},
+        expiresAt,
+      })),
+    )
+
+    return {
+      strategy: "multipart-parts",
+      key,
+      uploadId: input.uploadId,
+      parts,
+    }
+  }
+
+  async function completeMultipartUpload(
+    input: ProviderCompleteMultipartUploadInput,
+  ): Promise<CompleteMultipartUploadOutput> {
+    const key = normalizeKey(input.key)
+    validateCompletedParts(input.parts)
+
+    const body = createCompleteMultipartUploadXml(input.parts)
+    const response = await signedFetch({
+      config,
+      method: "POST",
+      endpoint,
+      key,
+      query: [["uploadId", input.uploadId]],
+      headers: {
+        "content-type": "application/xml",
+      },
+      body,
+    })
+    const responseText = await response.text()
+    const embeddedError = readS3Error(responseText)
+
+    if (!response.ok || embeddedError) {
+      throw new UploadSDKError(
+        embeddedError?.message ?? (responseText || "S3 could not complete the multipart upload."),
+        {
+          code: "UPLOAD_PROVIDER_ERROR",
+          statusCode: response.status,
+          details: embeddedError,
+        },
+      )
+    }
+
+    const etag = readXmlValue(responseText, "ETag")
+
+    if (!etag) {
+      throw new UploadSDKError("S3 did not return an ETag for the completed multipart upload.", {
+        code: "UPLOAD_PROVIDER_ERROR",
+      })
+    }
+
+    return {
+      key,
+      location: readXmlValue(responseText, "Location"),
+      bucket: readXmlValue(responseText, "Bucket"),
+      etag,
+    }
+  }
+
+  async function abortMultipartUpload(input: ProviderAbortMultipartUploadInput): Promise<void> {
+    const key = normalizeKey(input.key)
+    const response = await signedFetch({
+      config,
+      method: "DELETE",
+      endpoint,
+      key,
+      query: [["uploadId", input.uploadId]],
+      headers: {},
+      body: "",
+    })
+
+    if (!response.ok) {
+      throw new UploadSDKError(
+        (await response.text()) || "S3 could not abort the multipart upload.",
+        {
+          code: "UPLOAD_PROVIDER_ERROR",
+          statusCode: response.status,
+        },
+      )
+    }
+  }
+
   return {
+    abortMultipartUpload,
+    completeMultipartUpload,
+    createMultipartUpload,
     prepareUpload,
+    prepareMultipartUploadParts,
   }
 }
 
@@ -131,4 +304,250 @@ async function createSignature(
   const signature = await hmacSha256(signingKey, encodedPolicy)
 
   return toHex(signature)
+}
+
+type SignedFetchOptions = {
+  config: AwsS3Config
+  method: "DELETE" | "POST"
+  endpoint: string
+  key: string
+  query: readonly [string, string][]
+  headers: Record<string, string>
+  body: string
+}
+
+async function signedFetch(options: SignedFetchOptions): Promise<Response> {
+  const now = new Date()
+  const amzDate = formatAmzDate(now)
+  const headers: Record<string, string> = {
+    ...normalizeHeaders(options.headers),
+    host: new URL(options.endpoint).host,
+    "x-amz-content-sha256": toHex(await sha256(options.body)),
+    "x-amz-date": amzDate,
+  }
+
+  if (options.config.credentials.sessionToken) {
+    headers["x-amz-security-token"] = options.config.credentials.sessionToken
+  }
+
+  const signedHeaders = Object.keys(headers).sort().join(";")
+  const canonicalRequest = [
+    options.method,
+    createCanonicalUri(options.key),
+    createCanonicalQueryString(options.query),
+    createCanonicalHeaders(headers),
+    signedHeaders,
+    headers["x-amz-content-sha256"],
+  ].join("\n")
+  const dateStamp = amzDate.slice(0, 8)
+  const credentialScope = `${dateStamp}/${options.config.region}/s3/aws4_request`
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    toHex(await sha256(canonicalRequest)),
+  ].join("\n")
+  const signature = await createSignature(
+    options.config.credentials.secretAccessKey,
+    dateStamp,
+    options.config.region,
+    stringToSign,
+  )
+  const authorization = [
+    `AWS4-HMAC-SHA256 Credential=${options.config.credentials.accessKeyId}/${credentialScope}`,
+    `SignedHeaders=${signedHeaders}`,
+    `Signature=${signature}`,
+  ].join(", ")
+
+  return fetch(
+    `${options.endpoint}${createCanonicalUri(options.key)}?${createCanonicalQueryString(options.query)}`,
+    {
+      method: options.method,
+      headers: {
+        ...headers,
+        authorization,
+      },
+      body: options.body || undefined,
+    },
+  )
+}
+
+type PresignedPartUrlOptions = {
+  config: AwsS3Config
+  endpoint: string
+  key: string
+  uploadId: string
+  partNumber: number
+  expiresInSeconds: number
+  now: Date
+}
+
+async function createPresignedPartUrl(options: PresignedPartUrlOptions): Promise<string> {
+  const amzDate = formatAmzDate(options.now)
+  const dateStamp = amzDate.slice(0, 8)
+  const credentialScope = `${dateStamp}/${options.config.region}/s3/aws4_request`
+  const credential = `${options.config.credentials.accessKeyId}/${credentialScope}`
+  const query: [string, string][] = [
+    ["X-Amz-Algorithm", "AWS4-HMAC-SHA256"],
+    ["X-Amz-Credential", credential],
+    ["X-Amz-Date", amzDate],
+    ["X-Amz-Expires", String(options.expiresInSeconds)],
+    ["X-Amz-SignedHeaders", "host"],
+    ["partNumber", String(options.partNumber)],
+    ["uploadId", options.uploadId],
+  ]
+
+  if (options.config.credentials.sessionToken) {
+    query.push(["X-Amz-Security-Token", options.config.credentials.sessionToken])
+  }
+
+  const canonicalQueryString = createCanonicalQueryString(query)
+  const canonicalRequest = [
+    "PUT",
+    createCanonicalUri(options.key),
+    canonicalQueryString,
+    `host:${new URL(options.endpoint).host}\n`,
+    "host",
+    "UNSIGNED-PAYLOAD",
+  ].join("\n")
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    toHex(await sha256(canonicalRequest)),
+  ].join("\n")
+  const signature = await createSignature(
+    options.config.credentials.secretAccessKey,
+    dateStamp,
+    options.config.region,
+    stringToSign,
+  )
+
+  return `${options.endpoint}${createCanonicalUri(options.key)}?${canonicalQueryString}&X-Amz-Signature=${signature}`
+}
+
+function normalizeKey(key: string): string {
+  const normalizedKey = key.replace(/^\/+/, "")
+
+  if (!normalizedKey) {
+    throw new UploadSDKError("Upload key cannot be empty", {
+      code: "INVALID_UPLOAD_CONFIG",
+    })
+  }
+
+  return normalizedKey
+}
+
+function createMetadataHeaders(
+  metadata: ProviderPrepareUploadInput["metadata"],
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(metadata ?? {}).map(([name, value]) => [
+      `x-amz-meta-${name.toLowerCase()}`,
+      String(value),
+    ]),
+  )
+}
+
+function normalizeHeaders(headers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value.trim()]),
+  )
+}
+
+function createCanonicalHeaders(headers: Record<string, string>): string {
+  return Object.entries(headers)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, value]) => `${name}:${value}`)
+    .join("\n")
+    .concat("\n")
+}
+
+function createCanonicalUri(key: string): string {
+  return `/${key.split("/").map(encodeRfc3986).join("/")}`
+}
+
+function createCanonicalQueryString(query: readonly [string, string][]): string {
+  return [...query]
+    .sort(([leftName, leftValue], [rightName, rightValue]) =>
+      leftName === rightName
+        ? leftValue.localeCompare(rightValue)
+        : leftName.localeCompare(rightName),
+    )
+    .map(([name, value]) => `${encodeRfc3986(name)}=${encodeRfc3986(value)}`)
+    .join("&")
+}
+
+function encodeRfc3986(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  )
+}
+
+function validatePartNumbers(partNumbers: readonly number[]) {
+  if (!partNumbers.length) {
+    throw new UploadSDKError("At least one multipart upload part is required", {
+      code: "INVALID_UPLOAD_INPUT",
+    })
+  }
+
+  for (const partNumber of partNumbers) {
+    if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10_000) {
+      throw new UploadSDKError("Multipart upload part numbers must be between 1 and 10000", {
+        code: "INVALID_UPLOAD_INPUT",
+      })
+    }
+  }
+}
+
+function validateCompletedParts(
+  parts: readonly ProviderCompleteMultipartUploadInput["parts"][number][],
+) {
+  validatePartNumbers(parts.map((part) => part.partNumber))
+
+  for (const part of parts) {
+    if (!part.etag) {
+      throw new UploadSDKError("Completed multipart upload parts must include ETags", {
+        code: "INVALID_UPLOAD_INPUT",
+      })
+    }
+  }
+}
+
+function createCompleteMultipartUploadXml(
+  parts: readonly ProviderCompleteMultipartUploadInput["parts"][number][],
+): string {
+  const sortedParts = [...parts].sort((left, right) => left.partNumber - right.partNumber)
+
+  return `<CompleteMultipartUpload>${sortedParts
+    .map(
+      (part) =>
+        `<Part><PartNumber>${part.partNumber}</PartNumber><ETag>${escapeXml(part.etag)}</ETag></Part>`,
+    )
+    .join("")}</CompleteMultipartUpload>`
+}
+
+function readXmlValue(xml: string, tagName: string): string | undefined {
+  return xml.match(new RegExp(`<${tagName}>(.*?)</${tagName}>`, "s"))?.[1]
+}
+
+function readS3Error(xml: string): { code?: string; message?: string } | undefined {
+  if (!/<Error[\s>]/.test(xml)) {
+    return undefined
+  }
+
+  return {
+    code: readXmlValue(xml, "Code"),
+    message: readXmlValue(xml, "Message"),
+  }
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;")
 }

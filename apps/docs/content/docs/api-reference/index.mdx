@@ -16,6 +16,8 @@ import {
   defineUploadConfig,
   isUploadSDKError,
   toUploadSDKError,
+  uploadFile,
+  uploadMultipartParts,
 } from "@marinedotsh/upload-sdk";
 import { awsS3, imageKit } from "@marinedotsh/upload-sdk/providers";
 ```
@@ -203,14 +205,29 @@ const uploader = createUploader({
 
 ### Returns
 
-An uploader with a `prepareUpload()` method:
+An uploader with direct-upload and provider multipart methods:
 
 ```ts
 {
   prepareUpload(
     assetName,
     input,
-  ): Promise<PrepareUploadOutput>
+  ): Promise<PrepareUploadOutput>;
+
+  createMultipartUpload(
+    assetName,
+    input,
+  ): Promise<CreateMultipartUploadOutput>;
+
+  prepareMultipartUploadParts(
+    input,
+  ): Promise<PrepareMultipartUploadPartsOutput>;
+
+  completeMultipartUpload(
+    input,
+  ): Promise<CompleteMultipartUploadOutput>;
+
+  abortMultipartUpload(input): Promise<void>;
 }
 ```
 
@@ -292,6 +309,100 @@ try {
 ```
 
 See [Prepared Uploads](/docs/core-concepts/prepared-uploads).
+
+## `uploader.createMultipartUpload()`
+
+Starts an S3 multipart upload session for an asset.
+
+```ts
+uploader.createMultipartUpload(
+  assetName,
+  input,
+): Promise<CreateMultipartUploadOutput>
+```
+
+This method validates the same file metadata as `prepareUpload()`, generates a key, and returns the selected `storageProfile` with the S3 `uploadId`.
+
+Only providers that support multipart sessions implement this operation.
+
+## `uploader.prepareMultipartUploadParts()`
+
+Creates signed `PUT` URLs for multipart upload part numbers.
+
+```ts
+uploader.prepareMultipartUploadParts({
+  storageProfile,
+  key,
+  uploadId,
+  partNumbers,
+}): Promise<PrepareMultipartUploadPartsOutput>
+```
+
+Pass the object returned by `createMultipartUpload()` and the part numbers your browser will upload.
+
+## `uploader.completeMultipartUpload()`
+
+Completes an S3 multipart upload after the browser returns part ETags.
+
+```ts
+uploader.completeMultipartUpload({
+  storageProfile,
+  key,
+  uploadId,
+  parts,
+}): Promise<CompleteMultipartUploadOutput>
+```
+
+## `uploader.abortMultipartUpload()`
+
+Aborts an incomplete S3 multipart upload.
+
+```ts
+uploader.abortMultipartUpload({
+  storageProfile,
+  key,
+  uploadId,
+}): Promise<void>
+```
+
+See [S3 Large File Uploads](/docs/guides/s3-large-file-uploads).
+
+## `uploadFile()`
+
+Uploads a regular prepared multipart `POST` target from browser code.
+
+```ts
+uploadFile(
+  preparedUpload,
+  file,
+  options,
+): Promise<UploadFileResult>
+```
+
+Options include `fieldName`, `filename`, `signal`, and `onProgress`.
+
+Use this helper with values returned by `uploader.prepareUpload()`.
+
+## `uploadMultipartParts()`
+
+Uploads S3 multipart part URLs from browser code.
+
+```ts
+uploadMultipartParts(
+  preparedParts,
+  file,
+  {
+    chunkSize,
+    concurrency,
+    signal,
+    onProgress,
+  },
+): Promise<UploadMultipartPartsResult>
+```
+
+The result includes `storageProfile`, `key`, `uploadId`, and completed part ETags. Pass it to `uploader.completeMultipartUpload()` on the server.
+
+Use this helper with values returned by `uploader.prepareMultipartUploadParts()`.
 
 ## `awsS3()`
 

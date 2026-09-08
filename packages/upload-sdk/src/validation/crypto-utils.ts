@@ -27,6 +27,10 @@ export async function hmacSha256(key: string | ArrayBuffer, value: string): Prom
   return crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(value))
 }
 
+export async function sha256(value: string): Promise<ArrayBuffer> {
+  return crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
+}
+
 export function toHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
     .map((byte) => byte.toString(16).padStart(2, "0"))
