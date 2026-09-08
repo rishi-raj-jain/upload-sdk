@@ -62,7 +62,9 @@ export function Callout({ children, title, variant }: CalloutProps) {
       </div>
 
       <div className="min-w-0 text-sm leading-6">
-        <p className="mb-1.5 mt-0 font-semibold">{title ?? styles.defaultTitle}</p>
+        <p className="mb-1.5 mt-0 font-semibold">
+          {title ?? styles.defaultTitle}
+        </p>
 
         <div className="[&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
           {children}

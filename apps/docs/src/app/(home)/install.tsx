@@ -1,9 +1,9 @@
 "use client";
 
-import { GithubLogo } from "@/components/logo";
 import { ArrowRight, Check } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { GithubLogo } from "@/components/logo";
 
 const INSTALL_COMMAND = "pnpm add @marinedotsh/upload-sdk";
 const COPY_RESET_DELAY = 1600;

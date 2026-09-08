@@ -7,7 +7,9 @@ html {
 }
 
 html > body[data-scroll-locked] {
+  /* biome-ignore lint/complexity/noImportantStyles: Overrides remove-scroll inline compensation for fixed docs layout. */
   margin-right: 0px !important;
+  /* biome-ignore lint/complexity/noImportantStyles: Keeps Fumadocs scroll-lock from shifting the page horizontally. */
   --removed-body-scroll-bar-size: 0px !important;
 }
 

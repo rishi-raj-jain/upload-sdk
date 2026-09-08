@@ -1,7 +1,7 @@
-import { CodeExample } from "./code-example";
-import { AwsS3Logo, ImageKitLogo } from "@/components/logo";
 import { ArrowRight, Plus } from "lucide-react";
 import Link from "next/link";
+import { AwsS3Logo, ImageKitLogo } from "@/components/logo";
+import { CodeExample } from "./code-example";
 import { InstallSection } from "./install";
 
 export default function HomePage() {
